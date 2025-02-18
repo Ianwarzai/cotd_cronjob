@@ -7,7 +7,8 @@ var days = ["sunday","monday", "tuesday", "wednesday", "thursday", "friday", "sa
 var trading_types=["dayTrading", "swingTrading", "longTerm"]
 var trading_shift_counter=0;
 const pool= require('../db_config')
-const {filterStocks,fetchStockData,fetchPennyStockTickers,fetchSP500Tickers,fetchTickers,candleStickRecords} = require('../services/stockDataService');
+const {filterStocks,fetchStockData,fetchPennyStockTickers,fetchSP500Tickers,fetchTickers,candleStickRecords,fetchCryptoTickers} = require('../services/stockDataService');
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const prompts = [
     "AAPL is a bullish trade today because its technical indicators, including the Bollinger Bands, show the stock trading near its lower band, suggesting a potential bounce. The Relative Strength Index (RSI) is hovering near the oversold zone, indicating a buying opportunity. Additionally, the Moving Average Convergence Divergence (MACD) has recently crossed above its signal line, signaling momentum in the upward direction. With these indicators pointing towards a reversal, this stock appears to be an ideal buy right now.",
     "The bullish case for AAPL is supported by several key technical factors. This stock is currently approaching a strong support level, indicating potential resistance to further declines. The RSI suggests the stock is oversold, making it a prime candidate for a rebound. Moreover, the MACD histogram has begun to tick upward, signaling a shift in momentum. Combined with its historical strength, these technical indicators make this a promising buy today.",
@@ -22,17 +23,54 @@ const prompts = [
 
 cron.schedule(CronExpression.MONDAY_TO_FRIDAY_AT_9AM, async () => {
   console.log("Monday to friday at 9am");
-  let stock_data= {dayTrading: await getDayTradingStocks(7)}
+  let stock_data= {dayTrading: await getDayTradingCryptos(7)}
     await storStockData(stock_types[0], stock_data)
 
 });
 
 cron.schedule(CronExpression.MONDAY_TO_FRIDAY_AT_4_30PM, async () => {
   console.log("Monday to friday  at 4:30 pm");
-  let stock_data= {dayTrading: await getDayTradingStocks(7)}
+  let stock_data= {dayTrading: await getDayTradingCryptos(7)}
   await storStockData(stock_types[1], stock_data)
 });
+async function filterCrypto(limit = 100) {
+    try {
+        console.log('Fetching crypto tickers...');
+        const cryptoTickers = await fetchCryptoTickers(limit);
+        
+        console.log(`Processing ${cryptoTickers.length} cryptocurrencies...`);
+        const results = [];
+        
+        // Process in batches to avoid rate limiting
+        const batchSize = 1;
+        for (let i = 0; i < cryptoTickers.length; i += batchSize) {
+            const batch = cryptoTickers.slice(i, i + batchSize);
+            const batchResults = await Promise.all(
+                batch.map(crypto => fetchStockData(crypto.symbol))
+            );
+            results.push(...batchResults.filter(Boolean));
+            await sleep(1000);  // Rate limiting delay between batches
+        }
 
+        // Filter and sort results
+        const tradingOpportunities = results
+            .filter(crypto => crypto && 
+                    crypto.volume >= 1000000 && 
+                    parseFloat(crypto.price) >= 0.001)
+            .sort((a, b) => parseFloat(b.change_percent) - parseFloat(a.change_percent))
+            .slice(0, 30);
+
+        return tradingOpportunities
+
+    } catch (error) {
+        console.error('Analysis failed:', error);
+        return {
+            timestamp: new Date().toISOString(),
+            opportunities: [],
+            error: error.message
+        };
+    }
+}
 
 cron.schedule(CronExpression.EVERY_7_MINUTES, async () => {
 
@@ -40,7 +78,7 @@ cron.schedule(CronExpression.EVERY_7_MINUTES, async () => {
   let trading_data={}
 
   if(trading_shift_counter===0){
-    trading_data = {dayTrading: await getDayTradingStocks(30)}
+    trading_data = {dayTrading: await getDayTradingCryptos(30)}
   } else if( trading_shift_counter===1){
     trading_data = {swingTrading: await getSwingTradingStocks(30)}
   }else if( trading_shift_counter===2){
@@ -123,25 +161,20 @@ async function storStockData(stock_type, stock_data) {
 
 
 
-async function getDayTradingStocks(limit = 7) {
+async function getDayTradingCryptos(limit = 7) {
     try {
-      const pennyTickers = await fetchPennyStockTickers();
-      const stocksData = await Promise.all(
-        pennyTickers.map(ticker => fetchStockData(ticker))
-      );
+     const cryptocurrencies = await filterCrypto();
   
-      const filteredStocks = stocksData
-        .filter(stock => stock && stock.price >= 0.001 && stock.volume >= 1000000)
-        .sort((a, b) => b.change_percent - a.change_percent)
+      const filteredCrypto = cryptocurrencies
         .slice(0, limit)
-        .map(stock => ({
-          ...stock,
-          analysis: generateAnalysis(stock.ticker)
+        .map(crypto => ({
+          ...crypto,
+          analysis: generateAnalysis(crypto.ticker)
         }));
   
-      return filteredStocks;
+      return filteredCrypto;
     } catch (error) {
-        console.error('Error in getDayTradingStocks:', error);
+        console.error('Error in getDayTradingCrypto:', error);
         return {error:error.message}
       
     }
@@ -205,6 +238,12 @@ async function getDayTradingStocks(limit = 7) {
   }
   
 
+
+
+
+
+
+  
   function generateAnalysis(ticker) {
     const prompt = prompts[Math.floor(Math.random() * prompts.length)]
       .replace("AAPL", ticker);
