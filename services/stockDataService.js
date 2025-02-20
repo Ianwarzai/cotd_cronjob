@@ -1,3 +1,4 @@
+
 const axios = require('axios');
 const cheerio = require('cheerio');
 const _ = require('lodash');
@@ -6,39 +7,67 @@ const csv = require('csv-parser');
 const yahooFinance = require('yahoo-finance2').default;
 const math = require('mathjs');
 let priceCache = {};
-
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Fetch S&P 500 tickers from Wikipedia
-async function fetchSP500Tickers() {
-  const url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies';
+    async function fetchSP500Tickers() {
+    const url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies';
 
-  try {
-      // Fetch the HTML content of the page
-      const response = await axios.get(url);
+    try {
+        // Fetch the HTML content of the page
+        const response = await axios.get(url);
+        
+        // Load the HTML into Cheerio
+        const $ = cheerio.load(response.data);
+        
+        // Find the table containing the tickers
+        const tickers = [];
+
+        // Loop through the rows of the table and extract the ticker symbols
+        $('table.wikitable tbody tr').each((index, element) => {
+            const ticker = $(element).find('td:nth-child(1) a').text().trim();
+            if (ticker) {
+                tickers.push(ticker);
+            }
+        });
+
+        
+        return tickers;
+
+    } catch (error) {
+        console.error('Error fetching S&P 500 tickers:', error.message);
+        return [];
+    }
+    }
+    async function fetchCryptoTickers(limit = 250) {
+        const url = 'https://api.coingecko.com/api/v3/coins/markets';
+        const params = {
+            vs_currency: 'usd',
+            order: 'market_cap_desc',
+            per_page: limit,
+            page: 1,
+            sparkline: false
+        };
+    
+        try {
+            const response = await axios.get(url, { params });
+                
+            return response.data.map(coin => ({
+                id:coin.id,
+                symbol: `${coin.symbol.toUpperCase()}-USD`,  // Format for Yahoo Finance
+                name: coin.name,
+                current_price: coin.current_price,
+                market_cap: coin.market_cap,
+                market_cap_rank: coin.market_cap_rank,
+                price_change_24h: coin.price_change_percentage_24h,
+                image:coin.image
+            }));
+        } catch (error) {
+            console.error('CoinGecko API Error:', error.message);
+            return [];
+        }
+    }
       
-      // Load the HTML into Cheerio
-      const $ = cheerio.load(response.data);
-      
-      // Find the table containing the tickers
-      const tickers = [];
-
-      // Loop through the rows of the table and extract the ticker symbols
-      $('table.wikitable tbody tr').each((index, element) => {
-          const ticker = $(element).find('td:nth-child(1) a').text().trim();
-          if (ticker) {
-              tickers.push(ticker);
-          }
-      });
-
-     
-      return tickers;
-
-  } catch (error) {
-      console.error('Error fetching S&P 500 tickers:', error.message);
-      return [];
-  }
-}
-
 // Fetch penny stock tickers from a CSV file (using dummy data here)
 
 function fetchPennyStockTickers() {
@@ -62,51 +91,50 @@ function fetchPennyStockTickers() {
 }
 
 // Fetch stock data (you may need to use a stock API for this)
-function rollingMean(arr, windowSize) {
-  return arr.map((_, i, arr) => {
-      if (i + 1 >= windowSize) {
-          const window = arr.slice(i + 1 - windowSize, i + 1);
-          return math.mean(window);
-      } else {
-          return null;
-      }
-  });
-}
+const rollingMean = (data, window) => {
+    const result = [];
+    for (let i = window - 1; i < data.length; i++) {
+        const slice = data.slice(i - window + 1, i + 1);
+        const sum = slice.reduce((a, b) => a + b, 0);
+        result.push(sum / window);
+    }
+    return result;
+};
 
 // Helper function to calculate rolling standard deviation
-function rollingStd(arr, windowSize) {
-  return arr.map((_, i, arr) => {
-      if (i + 1 >= windowSize) {
-          const window = arr.slice(i + 1 - windowSize, i + 1);
-          return math.std(window);
-      } else {
-          return null;
-      }
-  });
-}
+const rollingStd = (data, window) => {
+    const means = rollingMean(data, window);
+    const result = [];
+    
+    for (let i = window - 1; i < data.length; i++) {
+        const slice = data.slice(i - window + 1, i + 1);
+        const mean = means[i - window + 1];
+        const squaredDiffs = slice.map(x => Math.pow(x - mean, 2));
+        const variance = squaredDiffs.reduce((a, b) => a + b, 0) / window;
+        result.push(Math.sqrt(variance));
+    }
+    return result;
+};
 
 // Helper function to calculate RSI (Relative Strength Index)
-function calculateRSI(prices, period = 14) {
-  const gains = [];
-  const losses = [];
-  for (let i = 1; i < prices.length; i++) {
-      const change = prices[i] - prices[i - 1];
-      if (change > 0) {
-          gains.push(change);
-          losses.push(0);
-      } else {
-          losses.push(-change);
-          gains.push(0);
-      }
-  }
-
-  const avgGain = math.mean(gains.slice(0, period));
-  const avgLoss = math.mean(losses.slice(0, period));
-
-  const rs = avgGain / avgLoss;
-  const rsi = 100 - (100 / (1 + rs));
-  return rsi;
-}
+const calculateRSI = (prices) => {
+    let gains = 0;
+    let losses = 0;
+    
+    for (let i = 1; i < prices.length; i++) {
+        const difference = prices[i] - prices[i - 1];
+        if (difference >= 0) {
+            gains += difference;
+        } else {
+            losses -= difference;
+        }
+    }
+    
+    if (losses === 0) return 100;
+    
+    const relativeStrength = gains / losses;
+    return 100 - (100 / (1 + relativeStrength));
+};
 async function candleStickRecords(symbol) {
     try {
         const endDate = new Date();
@@ -441,171 +469,336 @@ async function candleStickRecordsForDayTrading(ticker) {
 
 
 // Fetch stock data from Yahoo Finance
-async function fetchCarouselTickers(tickers) {
-    const results = [];
-    const errors = [];
-   
-    // Process tickers in parallel
-    const promises = tickers.map(async (ticker) => {
-        try {
-            const stock = await yahooFinance.quote(ticker);
+async function fetchCarouselTickers(limit = 20) {
+    const url = 'https://api.coingecko.com/api/v3/coins/markets';
+    const params = {
+        vs_currency: 'usd',
+        order: 'market_cap_desc',
+        per_page: limit,
+        page: 1,
+        sparkline: false
+    };
+
+    try {
+        const response = await axios.get(url, { params });
             
-            // Calculate change percentage using regularMarketPrice and regularMarketOpen
-            const changePercent = stock.regularMarketOpen 
-                ? ((stock.regularMarketPrice - stock.regularMarketOpen) / stock.regularMarketOpen * 100).toFixed(2)
-                : null;
+       return response.data;
+    } catch (error) {
+        console.error('CoinGecko API Error:', error.message);
+        return [];
+    }
+}
+async function filterStocks(limit = 100) {
+    try {
+        console.log('Fetching crypto tickers...');
+        const cryptoTickers = await fetchCryptoTickers(limit);
+        console.log('tickers', cryptoTickers);
+        console.log(`Processing ${cryptoTickers.length} cryptocurrencies...`);
+        
+        const results = [];
 
-            // Create record with the requested fields including change percentage
-            const record = {
-                ticker,
-                name: stock.longName || null,
-                volume: stock.regularMarketVolume || null,
-                price: stock.regularMarketPrice?.toFixed(2) || null,
-                market_cap: stock.marketCap || null,
-                pe_ratio: stock.trailingPE || null,
-                change_percent: changePercent || stock.regularMarketChangePercent?.toFixed(2) || null
-            };
+        // Process sequentially to avoid rate limiting
+        for (const crypto of cryptoTickers) {
+            try {
+                console.log(`Fetching data for ${crypto.id}`);
+                const cryptoData = await fetchCryptoData(crypto.id,crypto.image);
+                
+                if (cryptoData) {
+                    results.push(cryptoData);
+                }
+                
+                // Add a delay between API calls to prevent rate limiting
+                await sleep(1500); // 1.5 seconds between calls
+            } catch (error) {
+                console.error(`Error processing ${crypto.id}:`, error);
+                // Continue with next crypto even if one fails
+                continue;
+            }
+        }
 
-            // Check if any fields are null
-            const hasNullValues = Object.values(record).some(value => 
-                value === null || value === undefined || value === 'NaN'
+        // Filter and sort results
+        const tradingOpportunities = results
+            .filter(crypto => crypto &&
+                     crypto.volume >= 1000000 &&
+                     parseFloat(crypto.price) >= 0.001)
+            .sort((a, b) => parseFloat(b.change_percent) - parseFloat(a.change_percent))
+            .slice(0, 30);
+
+        return {
+            timestamp: new Date().toISOString(),
+            opportunities: tradingOpportunities
+        };
+    } catch (error) {
+        console.error('Analysis failed:', error);
+        return {
+            timestamp: new Date().toISOString(),
+            opportunities: [],
+            error: error.message
+        };
+    }
+}
+async function fetchCryptoData(coinId,image, retries = 3) {
+    console.log('image',image);
+    const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            // Fetch current price and market data
+            const currentDataResponse = await fetch(
+                `${COINGECKO_BASE_URL}/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`
             );
-
-            if (!hasNullValues) {
-                results.push(record);
+            
+            if (!currentDataResponse.ok) {
+                throw new Error(`CoinGecko API error: ${currentDataResponse.status}`);
+            }
+            
+            const currentData = await currentDataResponse.json();
+            
+            // Get 6 months of historical daily data
+            const sixMonthsAgo = Math.floor(Date.now() / 1000) - (180 * 24 * 60 * 60);
+            const historicalDataResponse = await fetch(
+                `${COINGECKO_BASE_URL}/coins/${coinId}/market_chart/range?vs_currency=usd&from=${sixMonthsAgo}&to=${Math.floor(Date.now() / 1000)}`
+            );
+            
+            if (!historicalDataResponse.ok) {
+                throw new Error(`CoinGecko historical data API error: ${historicalDataResponse.status}`);
+            }
+            
+            const historicalData = await historicalDataResponse.json();
+            
+            // Check if we have any historical data
+            if (!historicalData.prices || historicalData.prices.length === 0) {
+                console.warn(`No historical data available for ${coinId}`);
+                // Return partial data if current data is available
+                return {
+                    ticker: currentData.symbol.toUpperCase(),
+                    name: currentData.name,
+                    price: currentData.market_data.current_price.usd?.toFixed(2) || 'N/A',
+                    volume: currentData.market_data.total_volume.usd || 'N/A',
+                    market_cap: currentData.market_data.market_cap.usd || 'N/A',
+                    change_percent: currentData.market_data.price_change_percentage_24h?.toFixed(2) || 'N/A',
+                    rsi: 'N/A',
+                    ma_50: 'N/A',
+                    ma_200: 'N/A',
+                    bollinger_upper: 'N/A',
+                    bollinger_lower: 'N/A',
+                    entry_point: 'N/A',
+                    exit_point: 'N/A',
+                    image
+                };
             }
 
+            // Process historical data
+            const closingPrices = historicalData.prices.map(item => item[1]);
+            const volumes = historicalData.total_volumes.map(item => item[1]);
+            
+            // Check if we have enough data for calculations
+            if (closingPrices.length < 150) {
+                console.warn(`Insufficient historical data for ${coinId} (${closingPrices.length} days available)`);
+            }
+
+            // Calculate technical indicators
+            const ma50 = closingPrices.length >= 50 ? rollingMean(closingPrices, 50) : null;
+            const ma200 = closingPrices.length >= 200 ? rollingMean(closingPrices, 200) : null;
+            const rsi = closingPrices.length >= 14 ? calculateRSI(closingPrices.slice(-14)) : null;
+            const ma20 = closingPrices.length >= 20 ? rollingMean(closingPrices, 20) : null;
+            const std20 = closingPrices.length >= 20 ? rollingStd(closingPrices, 20) : null;
+
+            const lastPrice = closingPrices[closingPrices.length - 1];
+            const lastMa20 = ma20 ? ma20[ma20.length - 1] : null;
+            const lastStd20 = std20 ? std20[std20.length - 1] : null;
+
+            let upperBB = null;
+            let lowerBB = null;
+            let entryExitPoints = { entryPoint: null, exitPoint: null };
+
+            if (lastMa20 && lastStd20) {
+                upperBB = lastMa20 + (2 * lastStd20);
+                lowerBB = lastMa20 - (2 * lastStd20);
+                entryExitPoints = calculateEntryExitPoints(
+                    coinId,
+                    lastPrice,
+                    lowerBB,
+                    upperBB
+                );
+            }
+
+            return {
+                ticker: currentData.symbol.toUpperCase(),
+                name: currentData.name,
+                price: lastPrice.toFixed(2),
+                volume: volumes[volumes.length - 1],
+                market_cap: currentData.market_data.market_cap.usd,
+                change_percent: currentData.market_data.price_change_percentage_24h?.toFixed(2) || 'N/A',
+                rsi: rsi?.toFixed(2) || 'N/A',
+                ma_50: ma50?.[ma50.length - 1]?.toFixed(2) || 'N/A',
+                ma_200: ma200?.[ma200.length - 1]?.toFixed(2) || 'N/A',
+                bollinger_upper: upperBB?.toFixed(2) || 'N/A',
+                bollinger_lower: lowerBB?.toFixed(2) || 'N/A',
+                entry_point: entryExitPoints.entryPoint?.toFixed(2) || 'N/A',
+                exit_point: entryExitPoints.exitPoint?.toFixed(2) || 'N/A',
+                image
+            };
         } catch (error) {
-            errors.push(`Error fetching stock data for ${ticker}: ${error.message}`);
+            console.warn(`Attempt ${attempt} failed for ${coinId}:`, error.message);
+            
+            if (attempt === retries) {
+                console.error(`Failed to fetch data for ${coinId} after ${retries} attempts:`, error.message);
+                return {
+                    ticker: coinId.toUpperCase(),
+                    error: error.message,
+                    name: 'N/A',
+                    price: 'N/A',
+                    volume: 'N/A',
+                    market_cap: 'N/A',
+                    change_percent: 'N/A',
+                    rsi: 'N/A',
+                    ma_50: 'N/A',
+                    ma_200: 'N/A',
+                    bollinger_upper: 'N/A',
+                    bollinger_lower: 'N/A',
+                    entry_point: 'N/A',
+                    exit_point: 'N/A',
+                    image
+                };
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
         }
-    });
-
-    // Wait for all promises to resolve
-    await Promise.all(promises);
-
-    // Log errors but don't let them affect the response
-    if (errors.length) {
-        console.error('Errors encountered:', errors);
     }
-
-    // Return exactly 10 valid records
-    return results;
 }
+async function fetchStockData(ticker, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            const stock = await yahooFinance.quote(ticker);
+            if (!stock) {
+                throw new Error('No stock quote data available');
+            }
+            
+            // Calculate time periods
+            const period2 = Math.floor(Date.now() / 1000);
+            const period1 = Math.floor(new Date().setMonth(new Date().getMonth() - 6) / 1000);
+            
+            const history = await yahooFinance.historical(ticker, {
+                period1: new Date(period1 * 1000),
+                period2: new Date(period2 * 1000),
+                interval: '1d'
+            });
 
-async function fetchStockData(ticker) {
-  try {
-      const stock = await yahooFinance.quote(ticker);
-      let period1 = Math.floor(new Date().setFullYear(new Date().getFullYear() - 1) / 1000); // 1 year ago
-      const period2 = Math.floor(Date.now() / 1000);  // Current date
-      const queryOptions = {
-        period1: period1,
-        period2: period2,
-        interval: '1d',  // Daily data
-      };
-  
-      // Attempt to fetch historical data for the past year
-      let history = await yahooFinance.chart(ticker, queryOptions);
-  
-      // Check if the data is empty and, if so, retry with a shorter period
-      if (!history || !history.quotes || history.quotes.length === 0) {
-        // console.log(`No 1-year data found for ${ticker}. Fetching data for the past 6 months...`);
-        
-        // Calculate 6 months ago from now
-        period1 = Math.floor(new Date().setMonth(new Date().getMonth() - 6) / 1000); // 6 months ago
-        history = await yahooFinance.chart(ticker, { period1, period2, interval: '1d' });
-  
-        // If still empty, log an error
-        if (!history || !history.quotes || history.quotes.length === 0) {
-          throw new Error(`No historical data found for ${ticker}`);
+            // Check if we have any historical data
+            if (!history || history.length === 0) {
+                console.warn(`No historical data available for ${ticker}`);
+                // Return partial data if quote is available
+                if (stock) {
+                    return {
+                        ticker: ticker.replace('-USD', ''),
+                        name: stock.longName || stock.shortName || 'N/A',
+                        price: stock.regularMarketPrice?.toFixed(2) || 'N/A',
+                        volume: stock.regularMarketVolume || 'N/A',
+                        market_cap: stock.marketCap || 'N/A',
+                        change_percent: stock.regularMarketChangePercent?.toFixed(2) || 'N/A',
+                        rsi: 'N/A',
+                        ma_50: 'N/A',
+                        ma_200: 'N/A',
+                        bollinger_upper: 'N/A',
+                        bollinger_lower: 'N/A',
+                        entry_point: 'N/A',
+                        exit_point: 'N/A'
+                    };
+                }
+                throw new Error('No historical data available');
+            }
+
+            // Process historical data
+            const closingPrices = history.map(item => item.close).filter(price => price != null);
+            const openPrices = history.map(item => item.open).filter(price => price != null);
+            const volume = history.map(item => item.volume).filter(vol => vol != null);
+
+            // Check if we have enough data for calculations
+            if (closingPrices.length < 200) {
+                console.warn(`Insufficient historical data for ${ticker} (${closingPrices.length} days available)`);
+            }
+
+            // Calculate technical indicators with null checks
+            const ma50 = closingPrices.length >= 50 ? rollingMean(closingPrices, 50) : null;
+            const ma200 = closingPrices.length >= 200 ? rollingMean(closingPrices, 200) : null;
+            const rsi = closingPrices.length >= 14 ? calculateRSI(closingPrices.slice(-14)) : null;
+            const ma20 = closingPrices.length >= 20 ? rollingMean(closingPrices, 20) : null;
+            const std20 = closingPrices.length >= 20 ? rollingStd(closingPrices, 20) : null;
+
+            const lastPrice = closingPrices[closingPrices.length - 1];
+            const lastMa20 = ma20 ? ma20[ma20.length - 1] : null;
+            const lastStd20 = std20 ? std20[std20.length - 1] : null;
+
+            let upperBB = null;
+            let lowerBB = null;
+            let entryExitPoints = { entryPoint: null, exitPoint: null };
+
+            if (lastMa20 && lastStd20) {
+                upperBB = lastMa20 + (2 * lastStd20);
+                lowerBB = lastMa20 - (2 * lastStd20);
+                entryExitPoints = calculateEntryExitPoints(
+                    ticker,
+                    lastPrice,
+                    lowerBB,
+                    upperBB
+                );
+            }
+
+            const change_percent = openPrices.length > 0 ? 
+                ((lastPrice - openPrices[openPrices.length - 1]) / 
+                 openPrices[openPrices.length - 1]) * 100 : null;
+
+            return {
+                ticker: ticker.replace('-USD', ''),
+                name: stock.longName || stock.shortName || 'N/A',
+                price: lastPrice?.toFixed(2) || 'N/A',
+                volume: volume[volume.length - 1] || 'N/A',
+                market_cap: stock.marketCap || 'N/A',
+                change_percent: change_percent?.toFixed(2) || 'N/A',
+                rsi: rsi?.toFixed(2) || 'N/A',
+                ma_50: ma50?.[ma50.length - 1]?.toFixed(2) || 'N/A',
+                ma_200: ma200?.[ma200.length - 1]?.toFixed(2) || 'N/A',
+                bollinger_upper: upperBB?.toFixed(2) || 'N/A',
+                bollinger_lower: lowerBB?.toFixed(2) || 'N/A',
+                entry_point: entryExitPoints.entryPoint?.toFixed(2) || 'N/A',
+                exit_point: entryExitPoints.exitPoint?.toFixed(2) || 'N/A'
+            };
+        } catch (error) {
+            console.warn(`Attempt ${attempt} failed for ${ticker}:`, error.message);
+            
+            if (attempt === retries) {
+                console.error(`Failed to fetch data for ${ticker} after ${retries} attempts:`, error.message);
+                // Return a structured error response instead of null
+                return {
+                    ticker: ticker.replace('-USD', ''),
+                    error: error.message,
+                    name: 'N/A',
+                    price: 'N/A',
+                    volume: 'N/A',
+                    market_cap: 'N/A',
+                    change_percent: 'N/A',
+                    rsi: 'N/A',
+                    ma_50: 'N/A',
+                    ma_200: 'N/A',
+                    bollinger_upper: 'N/A',
+                    bollinger_lower: 'N/A',
+                    entry_point: 'N/A',
+                    exit_point: 'N/A'
+                };
+            }
+            await sleep(1000 * attempt); // Exponential backoff
         }
-      }
-
-      // Extract the quotes data
-      const quotes = history.quotes;
-      
-      // Extract the closing prices, volume, and open prices
-      const closingPrices = quotes.map(item => item.close);
-      const volume = quotes.map(item => item.volume);
-      const openPrices = quotes.map(item => item.open);
-     
-      // Calculating moving averages, RSI, and Bollinger Bands
-      const ma50 = rollingMean(closingPrices, 50);
-      const ma200 = rollingMean(closingPrices, 200);
-      const rsi = closingPrices.slice(14).map((_, i) => calculateRSI(closingPrices.slice(i, i + 14)));
-      const ma20 = rollingMean(closingPrices, 20);
-      const std20 = rollingStd(closingPrices, 20);
-      const upperBB = ma20.map((m, i) => m + (2 * (std20[i] || 0)));
-      const lowerBB = ma20.map((m, i) => m - (2 * (std20[i] || 0)));
-
-      const currentPrice = stock.regularMarketPrice;
-      const entryExitPoints = calculateEntryExitPoints(ticker, currentPrice, lowerBB[lowerBB.length - 1], upperBB[upperBB.length - 1]);
-      
-
-// Ensure the arrays are of the same length and aligned:
-if (closingPrices.length !== openPrices.length) {
-    console.error("Mismatch in open and close prices");
-    return null;
-}
-
-const change_percent = ((closingPrices[closingPrices.length - 1] - openPrices[openPrices.length - 1]) / openPrices[openPrices.length - 1]) * 100;
-      return {
-          ticker,
-          name: stock.longName || 'N/A',
-          volume: volume[volume.length - 1],
-          price: currentPrice.toFixed(2),
-          market_cap: stock.marketCap || 0,
-          pe_ratio: stock.trailingPE || null,
-          change_percent,
-          '50_MA': ma50[ma50.length - 1]?.toFixed(2),
-          '200_MA': ma200[ma200.length - 1]?.toFixed(2),
-          'RSI': rsi[rsi.length - 1]?.toFixed(2),
-          'Upper_BB': upperBB[upperBB.length - 1]?.toFixed(2),
-          'Lower_BB': lowerBB[lowerBB.length - 1]?.toFixed(2),
-          entry_point: entryExitPoints.entryPoint.toFixed(2),
-          exit_point: entryExitPoints.exitPoint.toFixed(2),
-        //   closingPrices,
-        //   openPrices
-      };
-  } catch (error) {
-      console.error(`Error fetching stock data for ${ticker}:`, error.message);
-      return null;
-  }
+    }
 }
 
 
 
-function calculateEntryExitPoints(ticker, currentPrice, lowerBB, upperBB) {
-  // Check if we already have stored prices for this ticker
-  if (priceCache[ticker]) {
-      const [lastEntry, lastExit, lastPrice] = priceCache[ticker];
-      
-      // Only update if the price has changed significantly (1% change threshold)
-      if (Math.abs(currentPrice - lastPrice) / lastPrice < 0.01) {
-          return { entryPoint: lastEntry, exitPoint: lastExit };
-      }
-  }
 
-  // Randomly decide if the entry point should be above or below the current price
-  let entryPoint;
-  if (Math.random() < 0.5) {
-      // Slightly above (1-3%)
-      entryPoint = currentPrice * (1 + (Math.random() * 0.02 + 0.01));
-  } else {
-      // Slightly below (1-3%)
-      entryPoint = currentPrice * (1 - (Math.random() * 0.02 + 0.01));
-  }
-
-  // Set the exit point to be higher than the current price (e.g., 5-10% above)
-  const exitPoint = currentPrice * (1 + (Math.random() * 0.05 + 0.05));
-
-  // Update the cache
-  priceCache[ticker] = [round(entryPoint, 6), round(exitPoint, 6), currentPrice];
-
-  return {
-      entryPoint: round(entryPoint, 2),
-      exitPoint: round(exitPoint, 2),
-  };
-}
+const calculateEntryExitPoints = (ticker, currentPrice, lowerBB, upperBB) => {
+    const entryPoint = lowerBB || currentPrice * 0.95;
+    const exitPoint = upperBB || currentPrice * 1.05;
+    return { entryPoint, exitPoint };
+};
 
 
 
@@ -633,71 +826,44 @@ function formatPrice(price) {
 // Main function to filter stocks based on conditions
 async function fetchTickers(){
     
-  const sp500Tickers = [
-    "AAPL", // Apple Inc.
-    "MSFT", // Microsoft Corporation
-    "NVDA", // NVIDIA Corporation
-    "GOOGL", // Alphabet Inc.
-    "AMZN", // Amazon.com, Inc.
-    "TSLA", // Tesla, Inc.
-    "BRK.B", // Berkshire Hathaway Inc.
-    "META", // Meta Platforms, Inc.
-    "UNH", // UnitedHealth Group Incorporated
-    "JNJ", // Johnson & Johnson
-    "PG", // Procter & Gamble Co.
-    "XOM", // Exxon Mobil Corporation
-    "CVX", // Chevron Corporation
-    "WMT", // Walmart Inc.
-    "PFE", // Pfizer Inc.
-    "V", // Visa Inc.
-    "MA", // Mastercard Incorporated
-    "KO", // Coca-Cola Company
-    "PEP", // PepsiCo, Inc.
-    "ABBV" // AbbVie Inc.
-  ]
-  ;
+  
+      
 
-  const sp500StockData = await fetchCarouselTickers(sp500Tickers);
+  const cryptData = await fetchCarouselTickers();
   return {
   
-    sp500Stocks:sp500StockData
+    data:cryptData
   }
 }
-async function filterStocks() {
-  const pennyTickers = await fetchPennyStockTickers();
-  const sp500Tickers = await fetchSP500Tickers();
+function convertToFullTicker(ticker) {
+    // Check if the ticker already has the '-USD' suffix
+    if (!ticker.includes('-USD')) {
+      return `${ticker}-USD`;
+    }
+    return ticker; // Return the ticker as is if it already contains '-USD'
+  }
+  
+// async function filterStocks() {
+//   const cryptoTickers = await fetchCryptoTickers();
+  
+    
+//   const cryptoData = await Promise.all(cryptoTickers.map(fetchStockData));
 
-  const pennyStockData = await Promise.all(pennyTickers.map(fetchStockData));
-  const sp500StockData = await Promise.all(sp500Tickers.map(fetchStockData));
+//   const cryptoFiltered = cryptoData.filter(crypto => crypto && crypto.price >= 0.001);
 
-  const pennyStocksFiltered = pennyStockData.filter(stock => stock && stock.price >= 0.001);
-  const sp500StocksFiltered = sp500StockData.filter(stock => stock && stock.price >= 0.001);
+//   // Day Trading Stocks (Volume-based)
+//   const dayTradingStocks = cryptoFiltered
+//       .filter(crypto => crypto.volume >= 1000000)
+//       .sort((a, b) => b.change_percent - a.change_percent)
+//       .slice(0, 5);
 
-  // Day Trading Stocks (Volume-based)
-  const dayTradingStocks = pennyStocksFiltered
-      .filter(stock => stock.volume >= 1000000)
-      .sort((a, b) => b.change_percent - a.change_percent)
-      .slice(0, 5);
 
-  // Swing Trading Stocks (MA-based)
-  const swingTradingStocks = sp500StocksFiltered
-      .filter(stock => stock['50_MA'] > stock['200_MA'] && stock.price >= 10 && stock.price <= 1000)
-      .sort((a, b) => b.volume - a.volume)
-      .slice(0, 5);
+//   return {
+//       'Day Trading': dayTradingStocks,
 
-  // Long-Term Stocks (PE Ratio and Market Cap-based)
-  const longTermStocks = sp500StocksFiltered
-      .filter(stock => stock.market_cap > 1000000000 && stock.pe_ratio && stock.pe_ratio < 20)
-      .sort((a, b) => b.market_cap - a.market_cap)
-      .slice(0, 5);
-
-  return {
-      'Day Trading': dayTradingStocks,
-      'Swing Trading': swingTradingStocks,
-      'Long Term': longTermStocks
-  };
-}
+//   };
+// }
 
 
 
-module.exports = {filterStocks,fetchStockData,fetchPennyStockTickers,fetchPennyStockTickers,fetchSP500Tickers,fetchTickers,fetchCarouselTickers,candleStickRecords,candleStickRecordsForDayTrading};
+module.exports = {filterStocks,fetchStockData,fetchPennyStockTickers,fetchPennyStockTickers,fetchSP500Tickers,fetchTickers,fetchCarouselTickers,candleStickRecords,candleStickRecordsForDayTrading,fetchCryptoTickers,fetchCryptoData};

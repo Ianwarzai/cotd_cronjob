@@ -76,19 +76,19 @@ cron.schedule(CronExpression.EVERY_7_MINUTES, async () => {
 
   console.log("EVERY_7_MINUTES");
   let trading_data={}
+  trading_data = {dayTrading: await getDayTradingCryptos(30)}
 
-  if(trading_shift_counter===0){
-    trading_data = {dayTrading: await getDayTradingCryptos(30)}
-  } else if( trading_shift_counter===1){
-    trading_data = {swingTrading: await getSwingTradingStocks(30)}
-  }else if( trading_shift_counter===2){
-    trading_data = {longTerm: await getLongTermStocks(30)}
-  }
-    await storTradingData(trading_types[trading_shift_counter], trading_data)
-    trading_shift_counter++;
-    if(trading_shift_counter>2){
-      trading_shift_counter=0;
-    }
+  // if(trading_shift_counter===0){
+  // } else if( trading_shift_counter===1){
+  //   trading_data = {swingTrading: await getSwingTradingStocks(30)}
+  // }else if( trading_shift_counter===2){
+  //   trading_data = {longTerm: await getLongTermStocks(30)}
+  // }
+    await storTradingData(trading_types[0], trading_data)
+    // trading_shift_counter++;
+    // if(trading_shift_counter>2){
+    //   trading_shift_counter=0;
+    // }
 
 });
 
