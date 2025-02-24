@@ -39,35 +39,58 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         return [];
     }
     }
+    // async function fetchCryptoTickers(limit = 250) {
+    //     const url = 'https://api.coingecko.com/api/v3/coins/markets';
+    //     const params = {
+    //         vs_currency: 'usd',
+    //         order: 'market_cap_desc',
+    //         per_page: limit,
+    //         page: 1,
+    //         sparkline: false
+    //     };
+    
+    //     try {
+    //         const response = await axios.get(url, { params });
+                
+    //         return response.data.map(coin => ({
+    //             id:coin.id,
+    //             symbol: `${coin.symbol.toUpperCase()}-USD`,  // Format for Yahoo Finance
+    //             name: coin.name,
+    //             current_price: coin.current_price,
+    //             market_cap: coin.market_cap,
+    //             market_cap_rank: coin.market_cap_rank,
+    //             price_change_24h: coin.price_change_percentage_24h,
+    //             image:coin.image
+    //         }));
+    //     } catch (error) {
+    //         console.error('CoinGecko API Error:', error.message);
+    //         return [];
+    //     }
+    // }
     async function fetchCryptoTickers(limit = 250) {
-        const url = 'https://api.coingecko.com/api/v3/coins/markets';
-        const params = {
-            vs_currency: 'usd',
-            order: 'market_cap_desc',
-            per_page: limit,
-            page: 1,
-            sparkline: false
-        };
+        const url = 'https://api.coingecko.com/api/v3/coins/list?include_platform=true';
     
         try {
-            const response = await axios.get(url, { params });
-                
-            return response.data.map(coin => ({
-                id:coin.id,
-                symbol: `${coin.symbol.toUpperCase()}-USD`,  // Format for Yahoo Finance
-                name: coin.name,
-                current_price: coin.current_price,
-                market_cap: coin.market_cap,
-                market_cap_rank: coin.market_cap_rank,
-                price_change_24h: coin.price_change_percentage_24h,
-                image:coin.image
-            }));
+            const response = await axios.get(url);
+            
+            // Filter tokens that have Solana platform
+            const solanaTokens = response.data.filter(coin => 
+                coin.platforms && Object.keys(coin.platforms).includes('solana')
+            );
+            
+            // Apply limit and map to return only required fields
+            return solanaTokens
+                .slice(0, limit)
+                .map(token => ({
+                    id: token.id,
+                    name: token.name,
+                    symbol: `${token.symbol.toUpperCase()}-USD`
+                }));
         } catch (error) {
             console.error('CoinGecko API Error:', error.message);
             return [];
         }
     }
-      
 // Fetch penny stock tickers from a CSV file (using dummy data here)
 
 function fetchPennyStockTickers() {
