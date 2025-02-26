@@ -33,7 +33,7 @@ cron.schedule(CronExpression.MONDAY_TO_FRIDAY_AT_4_30PM, async () => {
   let stock_data= {dayTrading: await getDayTradingCryptos(7)}
   await storStockData(stock_types[1], stock_data)
 });
-async function filterCrypto(limit = 150) {
+async function filterCrypto(limit = 250) {
     try {
         console.log('Fetching crypto tickers...');
         const cryptoTickers = await fetchCryptoTickers(limit);
