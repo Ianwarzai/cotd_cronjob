@@ -689,7 +689,7 @@ async function fetchCryptoData(coinId,image, retries = 3) {
         }
     }
 }
-async function fetchStockData(ticker, retries = 3) {
+async function fetchStockData(ticker,id, retries = 3) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             const stock = await yahooFinance.quote(ticker);
@@ -713,6 +713,8 @@ async function fetchStockData(ticker, retries = 3) {
                 // Return partial data if quote is available
                 if (stock) {
                     return {
+
+                        id:id,
                         ticker: ticker.replace('-USD', ''),
                         name: stock.longName || stock.shortName || 'N/A',
                         price: stock.regularMarketPrice?.toFixed(2) || 'N/A',
@@ -772,6 +774,7 @@ async function fetchStockData(ticker, retries = 3) {
                  openPrices[openPrices.length - 1]) * 100 : null;
 
             return {
+                id:id,
                 ticker: ticker.replace('-USD', ''),
                 name: stock.longName || stock.shortName || 'N/A',
                 price: lastPrice?.toFixed(2) || 'N/A',
@@ -793,6 +796,7 @@ async function fetchStockData(ticker, retries = 3) {
                 console.error(`Failed to fetch data for ${ticker} after ${retries} attempts:`, error.message);
                 // Return a structured error response instead of null
                 return {
+                    id:id,
                     ticker: ticker.replace('-USD', ''),
                     error: error.message,
                     name: 'N/A',
