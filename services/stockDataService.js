@@ -67,30 +67,97 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     //         return [];
     //     }
     // }
-    async function fetchCryptoTickers(limit = 250) {
-        const url = 'https://api.coingecko.com/api/v3/coins/list?include_platform=true';
-    
-        try {
-            const response = await axios.get(url);
+// async function fetchCryptoTickers(limit = 250) {
+//     const url = 'https://api.jup.ag/tokens/v1/tagged/verified';
+
+//     try {
+//         const response = await axios.get(url);
+        
+//         // Filter for stablecoins (USDC, USDT, etc.) by examining the symbol
+//         const stablecoins = response.data.filter(token => {
+//             const symbol = token.symbol.toUpperCase();
+//             // Match USD-related symbols but exclude SOL itself
+//             return (symbol.includes('USD') || 
+//                    symbol.includes('USDT') || 
+//                    symbol.includes('USDC')) && 
+//                    symbol !== 'SOL';
+//         });
+        
+//         // Map to return required fields with proper format
+//         return stablecoins
+//             .slice(0, limit)
+//             .map(token => {
+//                 // If coingeckoId exists in extensions, use it as id, otherwise use address
+//                 const id = token.extensions?.coingeckoId || token.address;
+                
+//                 return {
+//                     id: id,
+//                     name: token.name,
+//                     symbol: `${token.symbol.toUpperCase()}-USD`,
+//                     // Include all other information from the Jupiter API
+//                     address: token.address,
+//                     decimals: token.decimals,
+//                     logoURI: token.logoURI,
+//                     tags: token.tags,
+//                     daily_volume: token.daily_volume,
+//                     created_at: token.created_at,
+//                     freeze_authority: token.freeze_authority,
+//                     mint_authority: token.mint_authority,
+//                     permanent_delegate: token.permanent_delegate,
+//                     minted_at: token.minted_at,
+//                     extensions: token.extensions
+//                 };
+//             });
+//     } catch (error) {
+//         console.error('Jupiter API Error:', error.message);
+//         return [];
+//     }
+// }
+async function fetchCryptoTickers(limit = 250) {
+    const url = 'https://api.jup.ag/tokens/v1/tagged/verified';
+
+    try {
+        const response = await axios.get(url);
+        
+        // Filter OUT any tokens with USD in their name or symbol
+        const filteredTokens = response.data.filter(token => {
+            const symbol = token.symbol.toUpperCase();
+            const name = token.name.toUpperCase();
             
-            // Filter tokens that have Solana platform
-            const solanaTokens = response.data.filter(coin => 
-                coin.platforms && Object.keys(coin.platforms).includes('solana')
-            );
-            
-            // Apply limit and map to return only required fields
-            return solanaTokens
-                .slice(0, limit)
-                .map(token => ({
-                    id: token.id,
+            // Exclude if it contains USD in symbol or name
+            return !symbol.includes('USD') && !name.includes('USD');
+        });
+        
+        // Map to return required fields with proper format
+        return filteredTokens
+            .slice(0, limit)
+            .map(token => {
+                // If coingeckoId exists in extensions, use it as id, otherwise use address
+                const id = token.extensions?.coingeckoId || token.address;
+                
+                return {
+                    id: id,
                     name: token.name,
-                    symbol: `${token.symbol.toUpperCase()}-USD`
-                }));
-        } catch (error) {
-            console.error('CoinGecko API Error:', error.message);
-            return [];
-        }
+                    symbol: `${token.symbol.toUpperCase()}-USD`,
+                    // Include all other information from the Jupiter API
+                    address: token.address,
+                    decimals: token.decimals,
+                    logoURI: token.logoURI,
+                    tags: token.tags,
+                    daily_volume: token.daily_volume,
+                    created_at: token.created_at,
+                    freeze_authority: token.freeze_authority,
+                    mint_authority: token.mint_authority,
+                    permanent_delegate: token.permanent_delegate,
+                    minted_at: token.minted_at,
+                    extensions: token.extensions
+                };
+            });
+    } catch (error) {
+        console.error('Jupiter API Error:', error.message);
+        return [];
     }
+}
 // Fetch penny stock tickers from a CSV file (using dummy data here)
 
 function fetchPennyStockTickers() {
@@ -689,7 +756,7 @@ async function fetchCryptoData(coinId,image, retries = 3) {
         }
     }
 }
-async function fetchStockData(ticker,id, retries = 3) {
+async function fetchStockData(ticker,additionalData, retries = 3) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             const stock = await yahooFinance.quote(ticker);
@@ -714,7 +781,7 @@ async function fetchStockData(ticker,id, retries = 3) {
                 if (stock) {
                     return {
 
-                        id:id,
+                        additionalData:additionalData,
                         ticker: ticker.replace('-USD', ''),
                         name: stock.longName || stock.shortName || 'N/A',
                         price: stock.regularMarketPrice?.toFixed(2) || 'N/A',
@@ -774,7 +841,7 @@ async function fetchStockData(ticker,id, retries = 3) {
                  openPrices[openPrices.length - 1]) * 100 : null;
 
             return {
-                id:id,
+                additionalData:additionalData,
                 ticker: ticker.replace('-USD', ''),
                 name: stock.longName || stock.shortName || 'N/A',
                 price: lastPrice?.toFixed(2) || 'N/A',
@@ -796,7 +863,7 @@ async function fetchStockData(ticker,id, retries = 3) {
                 console.error(`Failed to fetch data for ${ticker} after ${retries} attempts:`, error.message);
                 // Return a structured error response instead of null
                 return {
-                    id:id,
+                    additionalData:additionalData,
                     ticker: ticker.replace('-USD', ''),
                     error: error.message,
                     name: 'N/A',

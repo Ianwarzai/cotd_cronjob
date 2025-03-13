@@ -46,7 +46,7 @@ async function filterCrypto(limit = 250) {
         for (let i = 0; i < cryptoTickers.length; i += batchSize) {
             const batch = cryptoTickers.slice(i, i + batchSize);
             const batchResults = await Promise.all(
-                batch.map(crypto => fetchStockData(crypto.symbol,crypto.id))
+                batch.map(crypto => fetchStockData(crypto.symbol,crypto))
             );
             results.push(...batchResults.filter(Boolean));
             await sleep(1000);  // Rate limiting delay between batches
