@@ -119,13 +119,18 @@ async function fetchCryptoTickers(limit = 250) {
     try {
         const response = await axios.get(url);
         
-        // Filter OUT any tokens with USD in their name or symbol
+        // Filter OUT any tokens with USD, BTC, or ETH in their name or symbol
         const filteredTokens = response.data.filter(token => {
             const symbol = token.symbol.toUpperCase();
             const name = token.name.toUpperCase();
             
-            // Exclude if it contains USD in symbol or name
-            return !symbol.includes('USD') && !name.includes('USD');
+            // Exclude if it contains USD, BTC, or ETH in symbol or name
+            return !symbol.includes('USD') && 
+                   !name.includes('USD') && 
+                   !symbol.includes('BTC') && 
+                   !name.includes('BTC') && 
+                   !symbol.includes('ETH') && 
+                   !name.includes('ETH');
         });
         
         // Map to return required fields with proper format
