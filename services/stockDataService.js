@@ -126,11 +126,14 @@ async function fetchCryptoTickers(limit = 250) {
             
             // Exclude if it contains USD, BTC, or ETH in symbol or name
             return !symbol.includes('USD') && 
-                   !name.includes('USD') && 
-                   !symbol.includes('BTC') && 
-                   !name.includes('BTC') && 
-                   !symbol.includes('ETH') && 
-                   !name.includes('ETH');
+            !name.includes('USD') && 
+            !symbol.includes('BTC') && 
+            !name.includes('BTC') && 
+            !symbol.includes('ETH') && 
+            !name.includes('ETH') && 
+            !symbol.includes('BNB') && 
+            !name.includes('BNB');
+     
         });
         
         // Map to return required fields with proper format
