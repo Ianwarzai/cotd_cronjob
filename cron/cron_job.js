@@ -162,23 +162,46 @@ async function storStockData(stock_type, stock_data) {
 
 
 async function getDayTradingCryptos(limit = 7) {
-    try {
-     const cryptocurrencies = await filterCrypto();
-  
-      const filteredCrypto = cryptocurrencies
-        .slice(0, limit)
-        .map(crypto => ({
+  try {
+    const cryptocurrencies = await filterCrypto();
+
+    const filteredCrypto = cryptocurrencies
+      .slice(0, limit)
+      .map(crypto => {
+        // Initialize trend_percentage as null
+        let trend_percentage = null;
+        
+        // Get values needed for calculations
+        const price = parseFloat(crypto.price);
+        const ma50 = parseFloat(crypto.ma_50);
+        const ma200 = parseFloat(crypto.ma_200);
+        
+        // Primary calculation: price vs 50-day MA (most reliable with your data)
+        if (!isNaN(price) && !isNaN(ma50) && ma50 > 0) {
+          trend_percentage = ((price - ma50) / ma50 * 100).toFixed(2);
+        } 
+        // Alternative: If ma50 is invalid but ma200 exists
+        else if (!isNaN(price) && !isNaN(ma200) && ma200 > 0) {
+          trend_percentage = ((price - ma200) / ma200 * 100).toFixed(2);
+        }
+        // If neither moving average is available, we could use change_percent
+        else if (crypto.change_percent && crypto.change_percent !== 'N/A') {
+          trend_percentage = crypto.change_percent;
+        }
+
+        return {
           ...crypto,
+          trend_percentage,
           analysis: generateAnalysis(crypto.ticker)
-        }));
-  
-      return filteredCrypto;
-    } catch (error) {
-        console.error('Error in getDayTradingCrypto:', error);
-        return {error:error.message}
-      
-    }
+        };
+      });
+
+    return filteredCrypto;
+  } catch (error) {
+    console.error('Error in getDayTradingCrypto:', error);
+    return {error: error.message}
   }
+}
 
 
 
