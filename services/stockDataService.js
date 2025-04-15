@@ -945,26 +945,7 @@ function convertToFullTicker(ticker) {
     return ticker; // Return the ticker as is if it already contains '-USD'
   }
   
-// async function filterStocks() {
-//   const cryptoTickers = await fetchCryptoTickers();
-  
-    
-//   const cryptoData = await Promise.all(cryptoTickers.map(fetchStockData));
 
-//   const cryptoFiltered = cryptoData.filter(crypto => crypto && crypto.price >= 0.001);
-
-//   // Day Trading Stocks (Volume-based)
-//   const dayTradingStocks = cryptoFiltered
-//       .filter(crypto => crypto.volume >= 1000000)
-//       .sort((a, b) => b.change_percent - a.change_percent)
-//       .slice(0, 5);
-
-
-//   return {
-//       'Day Trading': dayTradingStocks,
-
-//   };
-// }
 
 
 
