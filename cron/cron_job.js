@@ -159,8 +159,6 @@ async function storStockData(stock_type, stock_data) {
  
 }
 
-
-
 async function getDayTradingCryptos(limit = 7) {
   try {
     const cryptocurrencies = await filterCrypto();
@@ -168,7 +166,7 @@ async function getDayTradingCryptos(limit = 7) {
     const filteredCrypto = cryptocurrencies
       .slice(0, limit)
       .map(crypto => {
-        // Initialize trend_percentage as null
+        
         let trend_percentage = null;
         
         // Get values needed for calculations
