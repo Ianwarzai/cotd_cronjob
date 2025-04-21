@@ -113,7 +113,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 //         return [];
 //     }
 // }
-async function fetchCryptoTickers(limit = 250) {
+async function fetchCryptoTickers(limit = 700) {
     const url = 'https://api.jup.ag/tokens/v1/tagged/verified';
 
     try {
@@ -146,7 +146,7 @@ async function fetchCryptoTickers(limit = 250) {
                 return {
                     id: id,
                     name: token.name,
-                    symbol: `${token.symbol.toUpperCase()}-USD`,
+                    symbol: `${token.symbol.toUpperCase()}USDT`,
                     // Include all other information from the Jupiter API
                     address: token.address,
                     decimals: token.decimals,

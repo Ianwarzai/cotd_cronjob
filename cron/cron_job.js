@@ -7,7 +7,8 @@ var days = ["sunday","monday", "tuesday", "wednesday", "thursday", "friday", "sa
 var trading_types=["dayTrading", "swingTrading", "longTerm"]
 var trading_shift_counter=0;
 const pool= require('../db_config')
-const {filterStocks,fetchStockData,fetchPennyStockTickers,fetchSP500Tickers,fetchTickers,candleStickRecords,fetchCryptoTickers} = require('../services/stockDataService');
+const {filterStocks,fetchPennyStockTickers,fetchSP500Tickers,fetchTickers,candleStickRecords,fetchCryptoTickers} = require('../services/stockDataService');
+const {fetchStockData} = require('../services/binanceServer');
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const prompts = [
     "AAPL is a bullish trade today because its technical indicators, including the Bollinger Bands, show the stock trading near its lower band, suggesting a potential bounce. The Relative Strength Index (RSI) is hovering near the oversold zone, indicating a buying opportunity. Additionally, the Moving Average Convergence Divergence (MACD) has recently crossed above its signal line, signaling momentum in the upward direction. With these indicators pointing towards a reversal, this stock appears to be an ideal buy right now.",
@@ -33,7 +34,7 @@ cron.schedule(CronExpression.MONDAY_TO_FRIDAY_AT_4_30PM, async () => {
   let stock_data= {dayTrading: await getDayTradingCryptos(7)}
   await storStockData(stock_types[1], stock_data)
 });
-async function filterCrypto(limit = 250) {
+async function filterCrypto(limit = 700) {
     try {
         console.log('Fetching crypto tickers...');
         const cryptoTickers = await fetchCryptoTickers(limit);
@@ -71,7 +72,131 @@ async function filterCrypto(limit = 250) {
         };
     }
 }
-
+function calculateTrendPercentage(crypto) {
+  try {
+    // Gather all available data points
+    const price = parseFloat(crypto.price);
+    const ma7 = parseFloat(crypto.ma_7);
+    const ma25 = parseFloat(crypto.ma_25);
+    const ma50 = parseFloat(crypto.ma_50);
+    const ma99 = parseFloat(crypto.ma_99);
+    const rsi = parseFloat(crypto.rsi);
+    const bollingerUpper = parseFloat(crypto.bollinger_upper);
+    const bollingerLower = parseFloat(crypto.bollinger_lower);
+    const changePercent = parseFloat(crypto.change_percent);
+    
+    // Initialize scores for different components
+    let trendScore = 0;
+    let componentsUsed = 0;
+    
+    // 1. Price position relative to moving averages (weight: 25%)
+    let maScore = 0;
+    let maCount = 0;
+    
+    if (!isNaN(price)) {
+      if (!isNaN(ma7) && ma7 > 0) {
+        maScore += price > ma7 ? 100 : 0;
+        maCount++;
+      }
+      
+      if (!isNaN(ma25) && ma25 > 0) {
+        maScore += price > ma25 ? 100 : 0;
+        maCount++;
+      }
+      
+      if (!isNaN(ma50) && ma50 > 0) {
+        maScore += price > ma50 ? 100 : 0;
+        maCount++;
+      }
+      
+      if (!isNaN(ma99) && ma99 > 0) {
+        maScore += price > ma99 ? 100 : 0;
+        maCount++;
+      }
+    }
+    
+    if (maCount > 0) {
+      trendScore += (maScore / maCount) * 0.25;
+      componentsUsed++;
+    }
+    
+    // 2. RSI position (weight: 25%)
+    // RSI ranges from 0-100: 
+    // 0-30: oversold (potentially bullish)
+    // 30-70: neutral
+    // 70-100: overbought (potentially bearish)
+    let rsiScore = 0;
+    
+    if (!isNaN(rsi)) {
+      if (rsi <= 30) {
+        // Oversold condition (potentially bullish) - higher score
+        rsiScore = 100 - ((30 - rsi) * (100/30));
+      } else if (rsi <= 70) {
+        // Neutral zone - scale to 50-100
+        rsiScore = 50 + ((rsi - 30) * (50/40));
+      } else {
+        // Overbought condition (potentially bearish) - lower score
+        rsiScore = 50 - ((rsi - 70) * (50/30));
+      }
+      
+      trendScore += rsiScore * 0.25;
+      componentsUsed++;
+    }
+    
+    // 3. Bollinger Bands position (weight: 25%)
+    let bbScore = 0;
+    
+    if (!isNaN(price) && !isNaN(bollingerUpper) && !isNaN(bollingerLower) && 
+        bollingerUpper > bollingerLower) {
+      // Calculate where price is within the bands (0-100%)
+      const bandWidth = bollingerUpper - bollingerLower;
+      const positionInBand = Math.max(0, Math.min(100, ((price - bollingerLower) / bandWidth) * 100));
+      
+      // Near lower band (0-25%) is bullish: score 75-100
+      // Middle of bands (25-75%) is neutral: score 25-75
+      // Near upper band (75-100%) is bearish: score 0-25
+      if (positionInBand <= 25) {
+        bbScore = 75 + positionInBand;
+      } else if (positionInBand <= 75) {
+        bbScore = 75 - ((positionInBand - 25) * (50/50));
+      } else {
+        bbScore = 25 - ((positionInBand - 75) * (25/25));
+      }
+      
+      trendScore += bbScore * 0.25;
+      componentsUsed++;
+    }
+    
+    // 4. Recent price change percentage (weight: 25%)
+    let changeScore = 0;
+    
+    if (!isNaN(changePercent)) {
+      // Map change percentage to a 0-100 score
+      // -10% or worse: 0
+      // +10% or better: 100
+      // Linear scale in between
+      changeScore = Math.max(0, Math.min(100, (changePercent + 10) * 5));
+      
+      trendScore += changeScore * 0.25;
+      componentsUsed++;
+    }
+    
+    // If we couldn't calculate any components, return a default value
+    if (componentsUsed === 0) {
+      return 50; // Neutral default
+    }
+    
+    // Normalize the score based on components used
+    trendScore = trendScore / componentsUsed;
+    
+    // Ensure the score is within 0-100 range
+    return Math.max(0, Math.min(100, trendScore)).toFixed(2);
+    
+  } catch (error) {
+    console.error('Error calculating trend percentage:', error);
+    return 50; // Return neutral value on error
+  }
+}
 cron.schedule(CronExpression.EVERY_7_MINUTES, async () => {
 
   console.log("EVERY_7_MINUTES");
@@ -159,6 +284,60 @@ async function storStockData(stock_type, stock_data) {
  
 }
 
+// async function getDayTradingCryptos(limit = 7) {
+//   try {
+//     const cryptocurrencies = await filterCrypto();
+
+//     const filteredCrypto = cryptocurrencies
+//       .slice(0, limit)
+//       .map(crypto => {
+        
+//         let trend_percentage = null;
+        
+//         // Get values needed for calculations
+//         const price = parseFloat(crypto.price);
+//         const ma50 = parseFloat(crypto.ma_50);
+//         const ma200 = parseFloat(crypto.ma_200);
+        
+//         // Primary calculation: price vs 50-day MA (most reliable with your data)
+//         if (!isNaN(price) && !isNaN(ma50) && ma50 > 0) {
+//           // Take absolute value to ensure it's positive
+//           trend_percentage = Math.abs(((price - ma50) / ma50 * 100));
+//         } 
+//         // Alternative: If ma50 is invalid but ma200 exists
+//         else if (!isNaN(price) && !isNaN(ma200) && ma200 > 0) {
+//           trend_percentage = Math.abs(((price - ma200) / ma200 * 100));
+//         }
+//         // If neither moving average is available, we could use change_percent
+//         else if (crypto.change_percent && crypto.change_percent !== 'N/A') {
+//           const change = parseFloat(crypto.change_percent);
+//           trend_percentage = !isNaN(change) ? Math.abs(change) : 0;
+//         }
+//         // Default fallback
+//         else {
+//           trend_percentage = 1.0; // Default minimum value
+//         }
+
+//         // Cap at 100 and ensure it's not negative
+//         trend_percentage = Math.min(100, Math.max(0, trend_percentage)).toFixed(2);
+        
+//         // Convert to number for final output
+//         trend_percentage = parseFloat(trend_percentage);
+
+//         return {
+//           ...crypto,
+//           trend_percentage,
+//           analysis: generateAnalysis(crypto.ticker)
+//         };
+//       });
+
+//     return filteredCrypto;
+//   } catch (error) {
+//     console.error('Error in getDayTradingCrypto:', error);
+//     return {error: error.message}
+//   }
+// }
+
 async function getDayTradingCryptos(limit = 7) {
   try {
     const cryptocurrencies = await filterCrypto();
@@ -166,42 +345,12 @@ async function getDayTradingCryptos(limit = 7) {
     const filteredCrypto = cryptocurrencies
       .slice(0, limit)
       .map(crypto => {
+        // Calculate trend percentage with our new method
+        const trend_percentage = calculateTrendPercentage(crypto);
         
-        let trend_percentage = null;
-        
-        // Get values needed for calculations
-        const price = parseFloat(crypto.price);
-        const ma50 = parseFloat(crypto.ma_50);
-        const ma200 = parseFloat(crypto.ma_200);
-        
-        // Primary calculation: price vs 50-day MA (most reliable with your data)
-        if (!isNaN(price) && !isNaN(ma50) && ma50 > 0) {
-          // Take absolute value to ensure it's positive
-          trend_percentage = Math.abs(((price - ma50) / ma50 * 100));
-        } 
-        // Alternative: If ma50 is invalid but ma200 exists
-        else if (!isNaN(price) && !isNaN(ma200) && ma200 > 0) {
-          trend_percentage = Math.abs(((price - ma200) / ma200 * 100));
-        }
-        // If neither moving average is available, we could use change_percent
-        else if (crypto.change_percent && crypto.change_percent !== 'N/A') {
-          const change = parseFloat(crypto.change_percent);
-          trend_percentage = !isNaN(change) ? Math.abs(change) : 0;
-        }
-        // Default fallback
-        else {
-          trend_percentage = 1.0; // Default minimum value
-        }
-
-        // Cap at 100 and ensure it's not negative
-        trend_percentage = Math.min(100, Math.max(0, trend_percentage)).toFixed(2);
-        
-        // Convert to number for final output
-        trend_percentage = parseFloat(trend_percentage);
-
         return {
           ...crypto,
-          trend_percentage,
+          trend_percentage: parseFloat(trend_percentage),
           analysis: generateAnalysis(crypto.ticker)
         };
       });
@@ -212,64 +361,6 @@ async function getDayTradingCryptos(limit = 7) {
     return {error: error.message}
   }
 }
-
-
-
-
-  async function getSwingTradingStocks(limit = 7) {
-    try {
-      const sp500Tickers = await fetchSP500Tickers();
-      const stocksData = await Promise.all(
-        sp500Tickers.map(ticker => fetchStockData(ticker))
-      );
-  
-      const filteredStocks = stocksData
-        .filter(stock => stock &&
-          stock.price >= 0.001 &&
-          stock['50_MA'] > stock['200_MA'] &&
-          stock.price >= 10 &&
-          stock.price <= 1000)
-        .sort((a, b) => b.volume - a.volume)
-        .slice(0, limit)
-        .map(stock => ({
-          ...stock,
-          analysis: generateAnalysis(stock.ticker)
-        }));
-  
-      return filteredStocks;
-    } catch (error) {
-      console.error('Error in getSwingTradingStocks:', error);
-      throw error;
-    }
-  }
-  
-  async function getLongTermStocks(limit = 7) {
-    try {
-      const sp500Tickers = await fetchSP500Tickers();
-      const stocksData = await Promise.all(
-        sp500Tickers.map(ticker => fetchStockData(ticker))
-      );
-  
-      const filteredStocks = stocksData
-        .filter(stock => stock &&
-          stock.price >= 0.001 &&
-          stock.market_cap > 1000000000 &&
-          stock.pe_ratio &&
-          stock.pe_ratio < 20)
-        .sort((a, b) => b.market_cap - a.market_cap)
-        .slice(0, limit)
-        .map(stock => ({
-          ...stock,
-          analysis: generateAnalysis(stock.ticker)
-        }));
-  
-      return filteredStocks;
-    } catch (error) {
-      console.error('Error in getLongTermStocks:', error);
-      throw error;
-    }
-  }
-  
 
 
 
