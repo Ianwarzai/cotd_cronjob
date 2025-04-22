@@ -19,8 +19,13 @@ async function fetchBinanceKlines(symbol, interval = '15m', limit = 1000) {
     const now = Date.now();
     const startTime = now - (limit * getIntervalInMs(interval) * 1.5); // 1.5x buffer
 
-    const url = 'https://api.binance.com/api/v3/klines';
+    // const url = 'https://api.binance.com/api/v3/klines';
+    const url = 'https://binance43.p.rapidapi.com/klines';
     const response = await axios.get(url, {
+      headers: {
+        'x-rapidapi-key': '9709d4ad7cmshd462b4191d35fc1p14ccc3jsnbf08b0387396',
+        'x-rapidapi-host': 'binance43.p.rapidapi.com'
+      },
       params: {
         symbol: symbol.toUpperCase(),
         interval: interval,
