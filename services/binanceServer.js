@@ -53,7 +53,7 @@ async function fetchBinanceKlines(symbol, interval = '15m', limit = 1000) {
       params: {
         symbol: symbol.toUpperCase(),
         interval: interval,
-        startTime: startTime,
+        // startTime: startTime,
         limit: limit
       }
     });
