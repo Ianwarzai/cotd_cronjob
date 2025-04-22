@@ -11,6 +11,35 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @param {number} limit - Number of candles to fetch (max 1000)
  * @returns {Promise<Array>} - Array of candlestick data
  */
+// async function fetchBinanceKlines(symbol, interval = '15m', limit = 1000) {
+//   try {
+//     // Calculate start time (if needed)
+//     // For MA99 with 15m candles, we need at least 99 candles
+//     // Adding some buffer to ensure we have enough data
+//     const now = Date.now();
+//     const startTime = now - (limit * getIntervalInMs(interval) * 1.5); // 1.5x buffer
+
+//     // const url = 'https://api.binance.com/api/v3/klines';
+//     const url = 'https://binance43.p.rapidapi.com/klines';
+//     const response = await axios.get(url, {
+//       headers: {
+//         'x-rapidapi-key': '9709d4ad7cmshd462b4191d35fc1p14ccc3jsnbf08b0387396',
+//         'x-rapidapi-host': 'binance43.p.rapidapi.com'
+//       },
+//       params: {
+//         symbol: symbol.toUpperCase(),
+//         interval: interval,
+//         startTime: startTime,
+//         limit: limit
+//       }
+//     });
+
+//     return response.data;
+//   } catch (error) {
+//     console.error(`Error fetching Binance klines for ${symbol}:`, error.message);
+//     throw error;
+//   }
+// }
 async function fetchBinanceKlines(symbol, interval = '15m', limit = 1000) {
   try {
     // Calculate start time (if needed)
@@ -19,13 +48,8 @@ async function fetchBinanceKlines(symbol, interval = '15m', limit = 1000) {
     const now = Date.now();
     const startTime = now - (limit * getIntervalInMs(interval) * 1.5); // 1.5x buffer
 
-    // const url = 'https://api.binance.com/api/v3/klines';
-    const url = 'https://binance43.p.rapidapi.com/klines';
+    const url = 'https://bkvn6wxxrg.execute-api.ca-central-1.amazonaws.com/klines';
     const response = await axios.get(url, {
-      headers: {
-        'x-rapidapi-key': '9709d4ad7cmshd462b4191d35fc1p14ccc3jsnbf08b0387396',
-        'x-rapidapi-host': 'binance43.p.rapidapi.com'
-      },
       params: {
         symbol: symbol.toUpperCase(),
         interval: interval,
