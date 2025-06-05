@@ -429,14 +429,90 @@ function generateAnalysiss(ticker) {
 }
 
 const axios = require("axios");
+// async function generateAnalysis(ticker) {
+//   const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
+//   const DEEPSEEK_API_KEY = "sk-99da1258ccd647bf8f0df5eef5b37931"; // Replace with your actual DeepSeek API key
+
+//   // const prompt = `Provide a concise financial analysis for the cryptocurrency ${ticker}. Include insights on whale accumulation, tweet volume with sentiment, and liquidity trends on decentralized exchanges. Format the response as a bullet-point list with short sentences, for example:
+//   //   - Whale accumulation surged 4x
+//   //   - Tweet volume up +167% with bullish sentiment
+//   //   - Liquidity strong, no dev sell-offs`;
+//   const prompt = `Provide a concise financial analysis for the cryptocurrency ${ticker}.
+// Dynamically analyze whale accumulation trends using real-time on-chain data, detecting any sharp inflows or sell-offs.
+// Assess tweet volume and sentiment based on live social media activity, ensuring context-driven insights.
+// Include liquidity trends on decentralized exchanges, key risk signals, and conditional triggers for market shifts.
+// Additionally, integrate major recent events related to the token, such as partnerships, exchange listings, regulatory developments, and significant protocol updates.
+// Ensure all price references are based on real-time data from reliable sources to provide accurate insights.
+// Format the response as a bullet-point list with short sentences. Examples:
+
+// - **Current Price:** $X.XX (Updated from live feed)
+// - **Whale Activity:** Accumulation surged 4x in the past 24 hours, but sell-off spikes detected.
+// - **Market Sentiment:** Tweet volume up +167%, sentiment shifting bullish due to recent token listing on Binance.
+// - **Liquidity Trends:** Strong liquidity, no dev sell-offs; monitoring changes post-token upgrade.
+// - **Risk Indicators:** TVL dropped 12% in the last 6 hours, indicating emerging liquidity concerns amid upcoming staking rewards change.
+// - **Event Impact:** Sudden token unlock detected; tracking price volatility following governance proposal approval.`;
+
+//   try {
+//     const response = await axios.post(
+//       DEEPSEEK_API_URL,
+//       {
+//         model: "deepseek-chat",
+//         messages: [
+//           {
+//             role: "system",
+//             content:
+//               "You are a cryptocurrency market analyst providing concise, actionable insights based on whale activity, social media sentiment, and decentralized exchange liquidity.",
+//           },
+//           {
+//             role: "user",
+//             content: prompt,
+//           },
+//         ],
+//         temperature: 0.7,
+//       },
+//       {
+//         headers: {
+//           Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+//           "Content-Type": "application/json",
+//         },
+//       }
+//     );
+
+//     console.log(response.data.usage);
+
+//     const analysis = response.data.choices[0].message.content.trim().toString();
+//     return analysis;
+//   } catch (error) {
+//     console.error("DeepSeek API Error:", error.response?.data || error.message);
+//     return "Analysis currently unavailable. Please try again later.";
+//   }
+// }
 async function generateAnalysis(ticker) {
   const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
-  const DEEPSEEK_API_KEY = "sk-99da1258ccd647bf8f0df5eef5b37931"; // Replace with your actual DeepSeek API key
+  const DEEPSEEK_API_KEY = "sk-99da1258ccd647bf8f0df5eef5b37931"; // Replace with your actual API key
 
-  const prompt = `Provide a concise financial analysis for the cryptocurrency ${ticker}. Include insights on whale accumulation, tweet volume with sentiment, and liquidity trends on decentralized exchanges. Format the response as a bullet-point list with short sentences, for example:
-    - Whale accumulation surged 4x
-    - Tweet volume up +167% with bullish sentiment
-    - Liquidity strong, no dev sell-offs`;
+  // Fetch real-time price from Binance API
+  const actualPrice = await fetchLivePrice(ticker);
+
+  if (!actualPrice) {
+    console.error("Failed to fetch actual price.");
+    return "Unable to retrieve live market price.";
+  }
+
+  // Include actual price in the prompt
+  const prompt = `Provide a concise financial analysis for the cryptocurrency ${ticker}.  
+- The **actual market price** of ${ticker} is **$${actualPrice}**—use this exact price reference in analysis.
+- Dynamically analyze whale accumulation trends using real-time on-chain data.
+- Assess tweet volume and sentiment based on live social media activity.
+- Include liquidity trends on decentralized exchanges, risk signals, and conditional triggers for market shifts.
+- Ensure resistance/support levels are within ±3% of the actual price.
+- Integrate major recent events related to the token, such as partnerships, exchange listings, regulatory developments, and significant protocol updates, **along with expected timelines**.
+- **Include key on-chain risk indicators**, such as:
+  - **Total Value Locked (TVL) Drops**: Identify percentage decline in TVL over the past week and its impact on market confidence.
+  - **Whale Sell-Offs**: Track large transactions moving to exchanges, signaling potential downward pressure.
+  - **Liquidity Imbalances**: Detect sudden shifts in DEX liquidity concentration and potential slippage risks.
+  - **Exchange Reserve Changes**: Monitor inflows/outflows across major exchanges, indicating possible market direction.
+  - Format the response as a bullet-point list with short sentences.`;
 
   try {
     const response = await axios.post(
@@ -447,12 +523,9 @@ async function generateAnalysis(ticker) {
           {
             role: "system",
             content:
-              "You are a cryptocurrency market analyst providing concise, actionable insights based on whale activity, social media sentiment, and decentralized exchange liquidity.",
+              "You are a cryptocurrency market analyst providing precise, real-time insights.",
           },
-          {
-            role: "user",
-            content: prompt,
-          },
+          { role: "user", content: prompt },
         ],
         temperature: 0.7,
       },
@@ -464,12 +537,176 @@ async function generateAnalysis(ticker) {
       }
     );
 
-    console.log(response.data.usage);
+    let analysis = response.data.choices[0].message.content.trim();
 
-    const analysis = response.data.choices[0].message.content.trim().toString();
+    console.log("Analysis response:", analysis);
+
+    // Validate price accuracy in response
+    if (!validatePriceLevels(analysis, actualPrice)) {
+      console.warn(
+        "Warning: Price levels may be inaccurate compared to real-time market data."
+      );
+    }
+
     return analysis;
   } catch (error) {
     console.error("DeepSeek API Error:", error.response?.data || error.message);
     return "Analysis currently unavailable. Please try again later.";
   }
 }
+
+// **Fetch Real-Time Price from Binance**
+async function fetchLivePrice(ticker) {
+  const BINANCE_API_URL = `https://api.binance.com/api/v3/ticker/price?symbol=${ticker}`;
+
+  try {
+    const response = await axios.get(BINANCE_API_URL);
+    console.log("Fetched live price for", ticker, ":", response.data.price);
+    return response?.data?.price || null;
+  } catch (error) {
+    console.error("Binance API Error:", error.message);
+    return null;
+  }
+}
+
+// **Validate Accuracy of Price References**
+function validatePriceLevels(analysis, actualPrice) {
+  const priceMatches = analysis.match(/\$\d+(\.\d+)?/g);
+  if (!actualPrice || !priceMatches) return true;
+
+  return priceMatches.every((priceStr) => {
+    const price = parseFloat(priceStr.replace(/[$,]/g, ""));
+    return price >= actualPrice * 0.97 && price <= actualPrice * 1.03;
+  });
+}
+
+// async function generateAnalysis(ticker) {
+//   const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
+//   const DEEPSEEK_API_KEY = "sk-99da1258ccd647bf8f0df5eef5b37931"; // Replace with your actual DeepSeek API key
+//   const prompt = `Provide a concise financial analysis for the cryptocurrency ${ticker}.
+// Dynamically analyze whale accumulation trends using real-time on-chain data, detecting any sharp inflows or sell-offs.
+// Assess tweet volume and sentiment based on live social media activity, ensuring context-driven insights.
+// Include liquidity trends on decentralized exchanges, key risk signals, and conditional triggers for market shifts.
+// Ensure all price references are sourced from live market data, verifying resistance/support levels within ±3% of the actual price.
+// Integrate major recent events related to the token, such as partnerships, exchange listings, regulatory developments, and significant protocol updates, **along with expected timelines**.
+// Format the response as a bullet-point list with short sentences. Examples:
+
+// - **Current Price:** $X.XX (Updated from live feed)
+// - **Whale Activity:** Accumulation surged 4x in the past 24 hours; 3 large sell-offs detected.
+// - **Market Sentiment:** Tweet volume up +167%, sentiment shifting bullish due to upcoming token listing on Binance (expected on June 12).
+// - **Liquidity Trends:** DEX liquidity stable, no dev sell-offs; monitoring shifts post-token upgrade on May 25.
+// - **Risk Indicators:** TVL dropped 12% in the last 6 hours, signaling liquidity concerns ahead of staking rewards distribution (set for July 3).
+// - **Event Impact:** Sudden token unlock detected; tracking volatility amid governance proposal approval (voting closes June 18).
+// - **Key Triggers:** Price support at $60.8K; resistance at $62.4K pending whale buy confirmations.
+// - **Recent Developments:** BlackRock’s ETF hits $18B AUM; Mt. Gox repayments begin on July 10, monitoring impact on BTC supply overhang.
+
+// *Data as of 12:00 UTC, sourced from Glassnode, Santiment, Kaiko, and CoinGecko.*`;
+
+//   try {
+//     const response = await axios.post(
+//       DEEPSEEK_API_URL,
+//       {
+//         model: "deepseek-chat",
+//         messages: [
+//           {
+//             role: "system",
+//             content:
+//               "You are a cryptocurrency market analyst providing precise, real-time insights on whale activity, social media sentiment, liquidity trends, price movements, and major token events with expected timelines.",
+//           },
+//           {
+//             role: "user",
+//             content: prompt,
+//           },
+//         ],
+//         temperature: 0.7,
+//       },
+//       {
+//         headers: {
+//           Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+//           "Content-Type": "application/json",
+//         },
+//       }
+//     );
+
+//     // Validate price accuracy: Ensure mentioned price levels are within ±3% of actual market price
+//     const actualPrice = await fetchLivePrice(ticker);
+//     const analysis = response.data.choices[0].message.content.trim().toString();
+
+//     if (!validatePriceLevels(analysis, actualPrice)) {
+//       console.warn(
+//         "Warning: Price levels may be inaccurate compared to real-time market data."
+//       );
+//     }
+
+//     return analysis;
+//   } catch (error) {
+//     console.error("DeepSeek API Error:", error.response?.data || error.message);
+//     return "Analysis currently unavailable. Please try again later.";
+//   }
+// }
+
+// Helper function to fetch real-time price
+
+// async function testAnalysis() {
+//   const cryptoData = await generateAnalysis("PNUTUSDT");
+
+//   console.log(cryptoData);
+//   // const analysis = await generateAnalysis("JUPUSDT", cryptoData);
+//   // console.log(`Analysis for JUPUSDT: ${analysis}`);
+// }
+// testAnalysis();
+
+// async function generateDeepSeekOnlyAnalysis(ticker, cryptoData) {
+//   const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
+//   const DEEPSEEK_API_KEY = "sk-99da1258ccd647bf8f0df5eef5b37931";
+//   const prompt = `Act as a professional cryptocurrency analyst. Provide a concise yet insightful analysis of ${ticker} based ONLY on the following verified data (do not use external sources):
+
+// **Current Market Data**
+// - Price: $${parseFloat(cryptoData.price).toFixed(4)}
+// - 24h Change: ${cryptoData.change_percent}%
+// - Volume: $${(cryptoData.volume / 1000000).toFixed(2)}M
+
+// **Technical Indicators**
+// - RSI: ${cryptoData.rsi || "N/A"}
+// - 50MA: $${cryptoData.ma_50 || "N/A"}
+// - Bollinger Bands: Upper ($${cryptoData.bollinger_upper}), Lower ($${
+//     cryptoData.bollinger_lower
+//   })
+
+// **Required Analysis Structure** (Be SPECIFIC):
+// 1. **Trend Identification** (Bullish/Bearish/Neutral)
+//    → Justify using RSI, moving averages, and price action.
+
+// 2. **Key Levels**
+//    → Identify nearest support/resistance (must align with Bollinger Bands or moving averages).
+//    → If near ATH, mention "Caution: ${ticker} is [X]% away from its all-time high."
+
+// 3. **Volume & Liquidity Assessment**
+//    → Compare current volume to average (high volume = strong trend confirmation).
+
+// 4. **Risk Alert** (MUST include at least one)
+//    → "Watch for RSI divergence if price rises without volume."
+//    → "Breaking below [X] level could accelerate selling."
+
+// 5. **Short-Term Prediction**
+//    → "If holds above $[X], next target is $[Y]."
+//    → "A close below $[Z] invalidates bullish scenario."
+
+// **Rules**:
+// - NEVER invent data. If unsure, say "Insufficient data."
+// - Prices must match input ±2% tolerance.
+// - No generic phrases like "do your own research."
+// - Keep analysis under 300 characters.`;
+
+//   const response = await axios.post(
+//     DEEPSEEK_API_URL,
+//     {
+//       model: "deepseek-chat",
+//       messages: [{ role: "user", content: prompt }],
+//       temperature: 0.3, // Low for factual accuracy
+//     },
+//     { headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}` } }
+//   );
+
+//   return response.data.choices[0].message.content;
+// }
