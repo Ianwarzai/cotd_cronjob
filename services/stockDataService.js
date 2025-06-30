@@ -145,17 +145,20 @@ async function fetchCryptoTickers(limit = 700) {
         name: token.name,
         symbol: `${token.symbol.toUpperCase()}USDT`,
         // Include all other information from the Jupiter API
-        address: token.address,
+        address: token.id,
         decimals: token.decimals,
-        logoURI: token.logoURI,
+        logoURI: token.icon,
         tags: token.tags,
         daily_volume: token.daily_volume,
         created_at: token.created_at,
+        totalSupply:token.totalSupply,
+        circSupply:token.circSupply,
         freeze_authority: token.freeze_authority,
         mint_authority: token.mint_authority,
         permanent_delegate: token.permanent_delegate,
         minted_at: token.minted_at,
         extensions: token.extensions,
+        usdSPrice:token.usdPrice,
       };
     });
   } catch (error) {
