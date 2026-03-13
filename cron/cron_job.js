@@ -423,7 +423,7 @@ async function getDayTradingCryptos(limit = 7) {
 
 async function generateAnalysis(ticker) {
   const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
-  const DEEPSEEK_API_KEY = "sk-99da1258ccd647bf8f0df5eef5b37931"; // Replace with your actual DeepSeek API key
+  const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
   // const prompt = `Provide a concise financial analysis for the cryptocurrency ${ticker}. Include insights on whale accumulation, tweet volume with sentiment, and liquidity trends on decentralized exchanges. Format the response as a bullet-point list with short sentences, for example:
   //   - Whale accumulation surged 4x

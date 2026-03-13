@@ -1,17 +1,17 @@
-const { Client } = require('pg');
+const { Pool } = require('pg');
 require('dotenv').config();
 
-const pool = new Client({
+const pool = new Pool({
   user: process.env.PG_USER,
   host: process.env.PG_HOST,
   database: process.env.PG_DATABASE,
   password: process.env.PG_PASSWORD,
   port: process.env.PG_PORT,
-  idleTimeoutMillis: 0,
-  connectionTimeoutMillis: 0,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
 });
 
-pool.connect().then(() => console.log("Database connected"));
+pool.on('connect', () => console.log("Database connected"));
 
 async function createTables() {
   const createUsersTable = `

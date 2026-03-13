@@ -48,7 +48,7 @@ async function fetchBinanceKlines(symbol, interval = '15m', limit = 1000) {
     const now = Date.now();
     const startTime = now - (limit * getIntervalInMs(interval) * 1.5); // 1.5x buffer
 
-    const url = 'https://bkvn6wxxrg.execute-api.ca-central-1.amazonaws.com/klines';
+    const url = process.env.BINANCE_LAMBDA_URL;
     const response = await axios.get(url, {
       params: {
         symbol: symbol.toUpperCase(),
