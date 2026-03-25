@@ -24,6 +24,15 @@ const {
 } = require("../services/stockDataService");
 const { fetchStockData } = require("../services/binanceServer");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ---------------------------------------------------------------------------
+// Analysis cache — avoids re-calling DeepSeek for a ticker whose analysis is
+// still fresh.  AI sentiment doesn't meaningfully change every 7 minutes; a
+// 4-hour window keeps insights current while cutting API calls by ~96%.
+// ---------------------------------------------------------------------------
+const analysisCache = new Map(); // ticker → { text: string, ts: number }
+const ANALYSIS_TTL = 4 * 60 * 60 * 1000; // 4 hours in ms
+
 const prompts = [
   "AAPL is a bullish trade today because its technical indicators, including the Bollinger Bands, show the stock trading near its lower band, suggesting a potential bounce. The Relative Strength Index (RSI) is hovering near the oversold zone, indicating a buying opportunity. Additionally, the Moving Average Convergence Divergence (MACD) has recently crossed above its signal line, signaling momentum in the upward direction. With these indicators pointing towards a reversal, this stock appears to be an ideal buy right now.",
   "The bullish case for AAPL is supported by several key technical factors. This stock is currently approaching a strong support level, indicating potential resistance to further declines. The RSI suggests the stock is oversold, making it a prime candidate for a rebound. Moreover, the MACD histogram has begun to tick upward, signaling a shift in momentum. Combined with its historical strength, these technical indicators make this a promising buy today.",
@@ -245,12 +254,12 @@ async function storTradingData(trading_type, trading_data) {
       `[storTradingData] Data: ${JSON.stringify(trading_data, null, 2)}`
     );
 
-    let trading_hostory = await pool.query(
+    let trading_history = await pool.query(
       `SELECT * FROM trading_history WHERE trading_type = $1`,
       [trading_type]
     );
 
-    if (trading_hostory.rows && trading_hostory.rows.length > 0) {
+    if (trading_history.rows && trading_history.rows.length > 0) {
       let res = await pool.query(
         `UPDATE trading_history SET trading_data = $1 WHERE trading_type = $2`,
         [trading_data, trading_type]
@@ -276,12 +285,12 @@ async function storStockData(stock_type, stock_data) {
     let day_index = new Date().getDay();
     let stock_day = days[day_index];
 
-    let stock_hostory = await pool.query(
+    let stock_history = await pool.query(
       `SELECT * FROM stock_history WHERE stock_type = $1 AND stock_day = $2`,
       [stock_type, stock_day]
     );
 
-    if (stock_hostory.rows && stock_hostory.rows.length > 0) {
+    if (stock_history.rows && stock_history.rows.length > 0) {
       let res = await pool.query(
         `UPDATE stock_history SET stock_data = $1 WHERE stock_type = $2 AND stock_day = $3`,
         [stock_data, stock_type, stock_day]
@@ -317,7 +326,7 @@ async function getDayTradingCryptos(limit = 7) {
       cryptocurrencies.slice(0, limit).map(async (crypto) => {
         try {
           const trend_percentage = calculateTrendPercentage(crypto);
-          const analysis = await generateAnalysis(crypto.ticker);
+          const analysis = await generateAnalysis(crypto.ticker, crypto);
 
           return {
             ...crypto,
@@ -421,27 +430,55 @@ async function getDayTradingCryptos(limit = 7) {
 //   }
 // }
 
-async function generateAnalysis(ticker) {
+async function generateAnalysis(ticker, cryptoData = {}) {
+  // ── Cache check ─────────────────────────────────────────────────────────
+  const cached = analysisCache.get(ticker);
+  if (cached && Date.now() - cached.ts < ANALYSIS_TTL) {
+    console.log(`[generateAnalysis] Cache hit for ${ticker} — skipping DeepSeek call`);
+    return cached.text;
+  }
+
   const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
   const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
-  // const prompt = `Provide a concise financial analysis for the cryptocurrency ${ticker}. Include insights on whale accumulation, tweet volume with sentiment, and liquidity trends on decentralized exchanges. Format the response as a bullet-point list with short sentences, for example:
-  //   - Whale accumulation surged 4x
-  //   - Tweet volume up +167% with bullish sentiment
-  //   - Liquidity strong, no dev sell-offs`;
-  const prompt = `Provide a concise financial analysis for the cryptocurrency ${ticker}.
-Dynamically analyze whale accumulation trends using real-time on-chain data, detecting any sharp inflows or sell-offs.
-Assess tweet volume and sentiment based on live social media activity, ensuring context-driven insights.
-Include liquidity trends on decentralized exchanges, key risk signals, and conditional triggers for market shifts.
-Additionally, integrate major recent events related to the token, such as partnerships, exchange listings, regulatory developments, and significant protocol updates.
-Ensure all price references are based on real-time data from reliable sources to provide accurate insights.
-Format the response as a bullet-point list with short sentences. Examples:
+  // Build a data snapshot from available technical indicators
+  const price = cryptoData.price ? `$${parseFloat(cryptoData.price).toFixed(6)}` : "unknown";
+  const changePercent = cryptoData.change_percent !== undefined ? `${parseFloat(cryptoData.change_percent).toFixed(2)}%` : "unknown";
+  const volume = cryptoData.volume ? `$${Number(cryptoData.volume).toLocaleString()}` : "unknown";
+  const rsi = cryptoData.rsi ? parseFloat(cryptoData.rsi).toFixed(1) : "unknown";
+  const ma7 = cryptoData.ma_7 ? `$${parseFloat(cryptoData.ma_7).toFixed(6)}` : "unknown";
+  const ma25 = cryptoData.ma_25 ? `$${parseFloat(cryptoData.ma_25).toFixed(6)}` : "unknown";
+  const bollingerUpper = cryptoData.bollinger_upper ? `$${parseFloat(cryptoData.bollinger_upper).toFixed(6)}` : "unknown";
+  const bollingerLower = cryptoData.bollinger_lower ? `$${parseFloat(cryptoData.bollinger_lower).toFixed(6)}` : "unknown";
+  const trendPct = cryptoData.trend_percentage !== undefined ? `${parseFloat(cryptoData.trend_percentage).toFixed(1)}%` : "unknown";
 
-- **Whale Activity:** Accumulation surged 4x in the past 24 hours, but sell-off spikes detected.
-- **Market Sentiment:** Tweet volume up +167%, sentiment shifting bullish due to recent token listing on Binance.
-- **Liquidity Trends:** Strong liquidity, no dev sell-offs; monitoring changes post-token upgrade.
-- **Risk Indicators:** TVL dropped 12% in the last 6 hours, indicating emerging liquidity concerns amid upcoming staking rewards change.
-- **Event Impact:** Sudden token unlock detected; tracking price volatility following governance proposal approval.`;
+  const dataSnapshot = `
+Current technical snapshot for ${ticker}:
+- Price: ${price} (24h change: ${changePercent})
+- Volume (24h): ${volume}
+- RSI (14): ${rsi}
+- MA7: ${ma7} | MA25: ${ma25}
+- Bollinger Bands: Upper ${bollingerUpper} / Lower ${bollingerLower}
+- Trend Score: ${trendPct}`;
+
+  const prompt = `You are analyzing ${ticker} for a crypto day-trading platform.
+
+${dataSnapshot}
+
+Based on these technicals AND your knowledge of recent market developments for ${ticker}, provide a concise trading analysis.
+
+IMPORTANT RULES:
+1. Use EXACTLY these 5 bullet categories in this order
+2. Each bullet must be 1-2 short sentences max
+3. Reference the actual technical data above where relevant (RSI, price vs MAs, Bollinger position)
+4. Be specific and actionable — avoid vague statements
+5. Do NOT include any introduction or conclusion — bullets only
+
+- **Whale Activity:** [On-chain accumulation/distribution trends, large wallet movements]
+- **Market Sentiment:** [Social media sentiment, community momentum, recent news tone]
+- **Liquidity Trends:** [DEX liquidity, volume health, buy/sell pressure from the data]
+- **Risk Indicators:** [Key risks: overbought/oversold RSI, Bollinger squeeze, volatility flags]
+- **Event Impact:** [Recent or upcoming events: listings, unlocks, upgrades, partnerships]`;
 
   try {
     const response = await axios.post(
@@ -469,12 +506,25 @@ Format the response as a bullet-point list with short sentences. Examples:
       }
     );
 
-    console.log(response.data.usage);
+    console.log(`[generateAnalysis] DeepSeek usage for ${ticker}:`, response.data.usage);
 
     const analysis = response.data.choices[0].message.content.trim().toString();
+
+    // ── Cache the fresh result ─────────────────────────────────────────────
+    analysisCache.set(ticker, { text: analysis, ts: Date.now() });
+
     return analysis;
   } catch (error) {
     console.error("DeepSeek API Error:", error.response?.data || error.message);
+
+    // Return stale cache rather than a generic error string so the UI always
+    // shows something meaningful even when DeepSeek is temporarily unavailable.
+    const stale = analysisCache.get(ticker);
+    if (stale) {
+      console.warn(`[generateAnalysis] Serving stale cache for ${ticker} after API error`);
+      return stale.text;
+    }
+
     return "Analysis currently unavailable. Please try again later.";
   }
 }
