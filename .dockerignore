@@ -1,0 +1,17 @@
+# Dependencies (will be reinstalled inside container)
+node_modules
+
+# Environment secrets — NEVER bake into the image
+.env
+
+# Git files
+.git
+.gitignore
+
+# Dev/editor files
+.vscode
+*.bat
+
+# Logs
+*.log
+npm-debug.log*
