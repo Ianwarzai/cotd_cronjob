@@ -9,6 +9,7 @@ const pool = new Pool({
   port: process.env.PG_PORT,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
+  ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false }
 });
 
 pool.on('connect', () => console.log("Database connected"));
